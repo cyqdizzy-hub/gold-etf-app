@@ -46,10 +46,17 @@ st.sidebar.markdown("💡 **提示：** 在右侧主界面输入新的代码、�
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_data_and_calc_ind(symbol):
     try:
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0'})
-        ticker = yf.Ticker(symbol, session=session)
+        # 直接调用，把伪装的工作全部交给 yfinance 底层自己处理
+        ticker = yf.Ticker(symbol)
         df = ticker.history(period="1y")
+        
+        if df.empty: return None, "未获取到数据，请检查代码。"
+        
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        df['MA60'] = df['Close'].rolling(window=60).mean()
+        return df.iloc[-126:], "成功"
+    except Exception as e:
+        return None, str(e)
 
 # --- 4. K 线图与智能建议函数 (复用原有逻辑，略去具体绘图细节保持代码清晰) ---
 def plot_candlestick(df, symbol):
