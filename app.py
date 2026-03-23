@@ -42,21 +42,27 @@ else:
 st.sidebar.divider()
 st.sidebar.markdown("💡 **提示：** 在右侧主界面输入新的代码、成本和数量后，点击下方按钮即可收藏。")
 
-# --- 3. 数据抓取与指标计算函数 ---
+# --- 3. 数据抓取与指标计算函数 (终极防屏蔽版) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_data_and_calc_ind(symbol):
     try:
-        # 直接调用，把伪装的工作全部交给 yfinance 底层自己处理
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1y")
+        # 放弃话痨的 Ticker，改用单次、底层的 download 方法，并关闭多线程
+        df = yf.download(symbol, period="1y", progress=False, threads=False)
         
-        if df.empty: return None, "未获取到数据，请检查代码。"
+        if df is None or len(df) == 0:
+            return None, "云端服务器IP正处于雅虎的限制期，请稍后再试。"
         
+        # 核心修复：处理 yfinance 新版本特有的多层表头问题
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        # 计算技术指标
         df['MA20'] = df['Close'].rolling(window=20).mean()
         df['MA60'] = df['Close'].rolling(window=60).mean()
+        
         return df.iloc[-126:], "成功"
     except Exception as e:
-        return None, str(e)
+        return None, f"数据解析出错: {str(e)}"
 
 # --- 4. K 线图与智能建议函数 (复用原有逻辑，略去具体绘图细节保持代码清晰) ---
 def plot_candlestick(df, symbol):
