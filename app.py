@@ -7,66 +7,92 @@ from plotly.subplots import make_subplots
 # --- 页面设置 ---
 st.set_page_config(page_title="通用投资决策仪表盘", page_icon="📈", layout="wide")
 
+# --- 0. 智能分类引擎 ---
+def get_category(symbol):
+    symbol = str(symbol).strip().upper()
+    if symbol.endswith(".SZ") or symbol.endswith(".SS"):
+        # 沪深市场：15、51开头的一般是ETF，其他是A股个股
+        if symbol.startswith("15") or symbol.startswith("51"):
+            return "📊 国内 ETF"
+        else:
+            return "🇨🇳 A股个股"
+    elif symbol.endswith(".HK"):
+        return "🇭🇰 港股"
+    elif symbol.isalpha():
+        # 纯字母一般是美股
+        return "🇺🇸 美股"
+    else:
+        return "🌍 其他标的"
+
 # --- 1. 初始化会话状态 ---
 if 'current_price' not in st.session_state:
     st.session_state.current_price = 0.0
 if 'df_history' not in st.session_state:
     st.session_state.df_history = pd.DataFrame()
 
+# 💡 升级版自选库：加入了 name 和 category 字段
 if 'watchlist' not in st.session_state:
     st.session_state.watchlist = {
-        "159934.SZ": {"cost": 8.592, "qty": 3776}, 
-        "513100.SS": {"cost": 1.200, "qty": 1000}  
+        "159934.SZ": {"name": "黄金ETF", "cost": 8.592, "qty": 3776, "category": "📊 国内 ETF"}, 
+        "513100.SS": {"name": "纳指100", "cost": 1.200, "qty": 1000, "category": "📊 国内 ETF"},
+        "AAPL": {"name": "苹果公司", "cost": 150.0, "qty": 50, "category": "🇺🇸 美股"}
     }
 
-# 初始化当前选中的标的记录
 if 'sidebar_select' not in st.session_state:
     st.session_state.sidebar_select = "159934.SZ"
 
-# --- 2. 侧边栏：直观导航列表 ---
+# --- 2. 侧边栏：分类导航列表 ---
 st.sidebar.title("⭐ 我的自选库")
 
-# 顶部的“新建”按钮
 if st.sidebar.button("➕ 手动输入新标的", type="primary" if st.session_state.sidebar_select == "" else "secondary", use_container_width=True):
     st.session_state.sidebar_select = ""
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.markdown("**已收藏列表 (点击切换)：**")
 
-# 💡 核心升级：动态生成带删除按钮的列表
-for symbol, data in list(st.session_state.watchlist.items()):
-    # 将侧边栏划分为两列：左边宽（放名字），右边窄（放删除键）
-    col1, col2 = st.sidebar.columns([4, 1])
+# 💡 核心升级：对字典里的股票按分类进行分组
+categories_dict = {}
+for sym, data in st.session_state.watchlist.items():
+    cat = data.get('category', '🌍 其他标的')
+    if cat not in categories_dict:
+        categories_dict[cat] = []
+    categories_dict[cat].append((sym, data))
+
+# 按分类渲染左侧列表
+for cat, items in categories_dict.items():
+    st.sidebar.caption(f"**{cat}**") # 分类小标题
     
-    # 当前选中的标的，按钮会变成蓝色(primary)高亮显示
-    btn_type = "primary" if st.session_state.sidebar_select == symbol else "secondary"
-    
-    # 点击标的名字，立刻切换为主视图
-    if col1.button(f"📊 {symbol}", key=f"sel_{symbol}", type=btn_type, use_container_width=True):
-        st.session_state.sidebar_select = symbol
-        st.rerun()
+    for sym, data in items:
+        col1, col2 = st.sidebar.columns([4, 1])
+        btn_type = "primary" if st.session_state.sidebar_select == sym else "secondary"
         
-    # 点击旁边的垃圾桶，立刻删除
-    if col2.button("🗑️", key=f"del_{symbol}", help=f"删除 {symbol}"):
-        del st.session_state.watchlist[symbol]
-        # 如果删掉的是当前正在看的，就清空主界面
-        if st.session_state.sidebar_select == symbol:
-            st.session_state.sidebar_select = ""
-        st.rerun()
+        # 显示名称 + 代码，例如：黄金ETF (159934.SZ)
+        display_name = data.get('name', '')
+        btn_label = f"{display_name} ({sym})" if display_name else f"📊 {sym}"
+        
+        if col1.button(btn_label, key=f"sel_{sym}", type=btn_type, use_container_width=True):
+            st.session_state.sidebar_select = sym
+            st.rerun()
+            
+        if col2.button("🗑️", key=f"del_{sym}", help=f"删除 {sym}"):
+            del st.session_state.watchlist[sym]
+            if st.session_state.sidebar_select == sym:
+                st.session_state.sidebar_select = ""
+            st.rerun()
+    st.sidebar.write("") # 分类之间加点空隙
 
-# 根据当前选中的状态，填充右侧主界面的默认值
+# 获取当前选中项的默认值
 if st.session_state.sidebar_select and st.session_state.sidebar_select in st.session_state.watchlist:
     default_sym = st.session_state.sidebar_select
-    default_cost = float(st.session_state.watchlist[default_sym]['cost'])
-    default_qty = int(st.session_state.watchlist[default_sym]['qty'])
+    default_data = st.session_state.watchlist[default_sym]
+    default_name = default_data.get('name', '')
+    default_cost = float(default_data.get('cost', 0.0))
+    default_qty = int(default_data.get('qty', 0))
 else:
     default_sym = ""
+    default_name = ""
     default_cost = 0.0
     default_qty = 0
-
-st.sidebar.divider()
-st.sidebar.markdown("💡 **提示：** 在右侧主界面输入新的代码和持仓后，点击下方保存按钮即可加入此列表。")
 
 # --- 3. 数据抓取与指标计算函数 ---
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -74,8 +100,7 @@ def fetch_data_and_calc_ind(symbol):
     try:
         df = yf.download(symbol, period="1y", progress=False, threads=False)
         if df is None or len(df) == 0:
-            return None, "云端服务器IP正处于限制期，请稍后再试或换用本地电脑运行。"
-        
+            return None, "获取数据失败，请检查代码格式是否正确。"
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
             
@@ -86,8 +111,9 @@ def fetch_data_and_calc_ind(symbol):
         return None, str(e)
 
 # --- 4. K 线图绘制函数 ---
-def plot_candlestick(df, symbol):
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_width=[0.2, 0.8])
+def plot_candlestick(df, symbol, name):
+    title = f"{name} ({symbol}) - 6个月日K线图" if name else f"{symbol} - 6个月日K线图"
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_width=[0.2, 0.8], subplot_titles=(title, '成交量'))
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='K线', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name='20日线', line=dict(color='#ffca28', width=1.5)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], name='60日线', line=dict(color='#2196f3', width=1.5)), row=1, col=1)
@@ -100,18 +126,21 @@ def plot_candlestick(df, symbol):
 # ==========================================
 st.title("📈 通用投资决策仪表盘")
 
-# 1. 顶部：联动输入区
+# 1. 顶部：联动输入区 (增加了一列用于输入名称)
 with st.container():
-    c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1.5])
+    c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1, 1, 1.2])
     
     with c1: 
         input_symbol = st.text_input("🔍 标的代码", value=default_sym, help="深市:.SZ, 沪市:.SS, 美股直接输")
     with c2: 
-        input_cost = st.number_input("底仓成本", value=default_cost, step=0.01)
+        # 💡 新增：中文名称输入框
+        input_name = st.text_input("🏷️ 标的名称(选填)", value=default_name, placeholder="如: 黄金ETF")
     with c3: 
+        input_cost = st.number_input("底仓成本", value=default_cost, step=0.01)
+    with c4: 
         input_qty = st.number_input("持仓数量", value=default_qty, step=100)
     
-    with c4:
+    with c5:
         st.write("") 
         if st.button("🔄 同步K线与现价", type="primary", use_container_width=True):
             if input_symbol:
@@ -124,18 +153,26 @@ with st.container():
                         st.error(f"❌ 获取失败：{msg}")
 
 # --- 保存自选动作 ---
-if st.button("💾 将当前输入的内容保存/更新至左侧列表"):
+if st.button("💾 将当前标的保存/更新至左侧分类列表"):
     if input_symbol:
-        st.session_state.watchlist[input_symbol] = {"cost": input_cost, "qty": input_qty}
+        # 调用分类引擎，自动识别它是美股还是ETF
+        auto_category = get_category(input_symbol)
+        
+        st.session_state.watchlist[input_symbol] = {
+            "name": input_name, 
+            "cost": input_cost, 
+            "qty": input_qty,
+            "category": auto_category  # 保存分类信息
+        }
         st.session_state.sidebar_select = input_symbol 
-        st.success(f"✅ {input_symbol} 已成功保存！")
+        st.success(f"✅ {input_symbol} 已成功分类并保存！")
         st.rerun() 
 
 st.divider()
 
-# 2. 中部：K 线图展示
+# 2. 中部：K 线图展示 (图表标题也会同步显示中文名)
 if not st.session_state.df_history.empty and st.session_state.current_price > 0:
-    fig_k = plot_candlestick(st.session_state.df_history, input_symbol)
+    fig_k = plot_candlestick(st.session_state.df_history, input_symbol, input_name)
     st.plotly_chart(fig_k, use_container_width=True)
 else:
     st.info("💡 请在上方确认代码后，点击“同步K线与现价”。")
