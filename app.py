@@ -11,7 +11,6 @@ st.set_page_config(page_title="通用投资决策仪表盘", page_icon="📈", l
 def get_category(symbol):
     symbol = str(symbol).strip().upper()
     if symbol.endswith(".SZ") or symbol.endswith(".SS"):
-        # 沪深市场：15、51开头的一般是ETF，其他是A股个股
         if symbol.startswith("15") or symbol.startswith("51"):
             return "📊 国内 ETF"
         else:
@@ -19,7 +18,6 @@ def get_category(symbol):
     elif symbol.endswith(".HK"):
         return "🇭🇰 港股"
     elif symbol.isalpha():
-        # 纯字母一般是美股
         return "🇺🇸 美股"
     else:
         return "🌍 其他标的"
@@ -30,7 +28,7 @@ if 'current_price' not in st.session_state:
 if 'df_history' not in st.session_state:
     st.session_state.df_history = pd.DataFrame()
 
-# 💡 升级版自选库：加入了 name 和 category 字段
+# 初始底仓数据
 if 'watchlist' not in st.session_state:
     st.session_state.watchlist = {
         "159934.SZ": {"name": "黄金ETF", "cost": 8.592, "qty": 3776, "category": "📊 国内 ETF"}, 
@@ -50,7 +48,6 @@ if st.sidebar.button("➕ 手动输入新标的", type="primary" if st.session_s
 
 st.sidebar.divider()
 
-# 💡 核心升级：对字典里的股票按分类进行分组
 categories_dict = {}
 for sym, data in st.session_state.watchlist.items():
     cat = data.get('category', '🌍 其他标的')
@@ -58,15 +55,12 @@ for sym, data in st.session_state.watchlist.items():
         categories_dict[cat] = []
     categories_dict[cat].append((sym, data))
 
-# 按分类渲染左侧列表
 for cat, items in categories_dict.items():
-    st.sidebar.caption(f"**{cat}**") # 分类小标题
-    
+    st.sidebar.caption(f"**{cat}**") 
     for sym, data in items:
         col1, col2 = st.sidebar.columns([4, 1])
         btn_type = "primary" if st.session_state.sidebar_select == sym else "secondary"
         
-        # 显示名称 + 代码，例如：黄金ETF (159934.SZ)
         display_name = data.get('name', '')
         btn_label = f"{display_name} ({sym})" if display_name else f"📊 {sym}"
         
@@ -79,7 +73,7 @@ for cat, items in categories_dict.items():
             if st.session_state.sidebar_select == sym:
                 st.session_state.sidebar_select = ""
             st.rerun()
-    st.sidebar.write("") # 分类之间加点空隙
+    st.sidebar.write("")
 
 # 获取当前选中项的默认值
 if st.session_state.sidebar_select and st.session_state.sidebar_select in st.session_state.watchlist:
@@ -126,19 +120,21 @@ def plot_candlestick(df, symbol, name):
 # ==========================================
 st.title("📈 通用投资决策仪表盘")
 
-# 1. 顶部：联动输入区 (增加了一列用于输入名称)
+# 💡 核心修复：给输入框生成专属的动态 Key
+# 这样每次切换侧边栏标的，输入框就会瞬间刷新为后台记忆的值
+ui_key = default_sym if default_sym else "new_entry"
+
 with st.container():
     c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1, 1, 1.2])
     
     with c1: 
-        input_symbol = st.text_input("🔍 标的代码", value=default_sym, help="深市:.SZ, 沪市:.SS, 美股直接输")
+        input_symbol = st.text_input("🔍 标的代码", value=default_sym, key=f"sym_{ui_key}", help="深市:.SZ, 沪市:.SS, 美股直接输")
     with c2: 
-        # 💡 新增：中文名称输入框
-        input_name = st.text_input("🏷️ 标的名称(选填)", value=default_name, placeholder="如: 黄金ETF")
+        input_name = st.text_input("🏷️ 标的名称(选填)", value=default_name, key=f"name_{ui_key}", placeholder="如: 黄金ETF")
     with c3: 
-        input_cost = st.number_input("底仓成本", value=default_cost, step=0.01)
+        input_cost = st.number_input("底仓成本", value=default_cost, step=0.01, key=f"cost_{ui_key}")
     with c4: 
-        input_qty = st.number_input("持仓数量", value=default_qty, step=100)
+        input_qty = st.number_input("持仓数量", value=default_qty, step=100, key=f"qty_{ui_key}")
     
     with c5:
         st.write("") 
@@ -155,22 +151,21 @@ with st.container():
 # --- 保存自选动作 ---
 if st.button("💾 将当前标的保存/更新至左侧分类列表"):
     if input_symbol:
-        # 调用分类引擎，自动识别它是美股还是ETF
         auto_category = get_category(input_symbol)
         
         st.session_state.watchlist[input_symbol] = {
             "name": input_name, 
             "cost": input_cost, 
             "qty": input_qty,
-            "category": auto_category  # 保存分类信息
+            "category": auto_category 
         }
         st.session_state.sidebar_select = input_symbol 
-        st.success(f"✅ {input_symbol} 已成功分类并保存！")
+        st.success(f"✅ {input_name or input_symbol} 已成功保存，底仓成本和数量已更新！")
         st.rerun() 
 
 st.divider()
 
-# 2. 中部：K 线图展示 (图表标题也会同步显示中文名)
+# 2. 中部：K 线图展示
 if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     fig_k = plot_candlestick(st.session_state.df_history, input_symbol, input_name)
     st.plotly_chart(fig_k, use_container_width=True)
@@ -187,7 +182,8 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
         st.subheader("⚙️ 动态加仓推演")
         st.metric("最新现价", f"¥ {st.session_state.current_price:.3f}")
         
-        qty_add = st.slider("计划加仓数量", min_value=0, max_value=int(max(input_qty * 2, 1000)), value=0, step=100)
+        # 滑块的最大值自动根据你的持仓动态调整
+        qty_add = st.slider("计划加仓数量", min_value=0, max_value=int(max(input_qty * 2, 1000)), value=0, step=100, key=f"slider_{ui_key}")
         
         total_qty = input_qty + qty_add
         current_p = st.session_state.current_price
