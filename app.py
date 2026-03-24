@@ -5,8 +5,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import hashlib
-import extra_streamlit_components as stx  # 新增：Cookie 管理神器
-import datetime                           # 新增：时间计算工具，用于设置过期时间
+import extra_streamlit_components as stx
+import datetime
 
 # --- 页面设置 ---
 st.set_page_config(page_title="通用投资决策仪表盘", page_icon="icon.png", layout="wide")
@@ -48,10 +48,10 @@ def get_category(symbol):
     else: return "🌍 其他标的"
 
 # ==========================================
-#        1. 登录与注册验证系统 (加入 Cookie 自动登录)
+#        1. 登录与注册验证系统 (修复版)
 # ==========================================
-# 唤醒 Cookie 管理器
-@st.cache_resource(experimental_allow_widgets=True)
+# 💡 已经去掉了报错的旧参数，完美适配最新版 Streamlit
+@st.cache_resource
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -62,14 +62,13 @@ if 'logged_in' not in st.session_state:
 if 'current_user' not in st.session_state:
     st.session_state.current_user = ""
 
-# 💡 核心升级：页面一加载，先去翻看浏览器里有没有叫 "saved_user" 的 Cookie
+# 读取浏览器 Cookie，判断是否免密登录
 saved_user = cookie_manager.get(cookie="saved_user")
 if saved_user and not st.session_state.logged_in:
-    # 如果找到了，直接给系统放行，跳过登录界面！
     st.session_state.logged_in = True
     st.session_state.current_user = saved_user
 
-# 如果既没有 Cookie，也没有在本次会话中登录过，就显示登录门
+# 登录与注册界面
 if not st.session_state.logged_in:
     st.title("🔐 通用投资决策仪表盘")
     st.markdown("请先登录或注册您的专属云端账号。")
@@ -80,7 +79,6 @@ if not st.session_state.logged_in:
         with st.form("login_form"):
             login_user = st.text_input("用户名")
             login_pwd = st.text_input("密码", type="password")
-            # 💡 新增：记住我 选项框，默认勾选
             remember_me = st.checkbox("记住我 (30天免登录)", value=True)
             submit_login = st.form_submit_button("登录", type="primary")
             
@@ -90,7 +88,6 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.current_user = login_user
                     
-                    # 💡 如果勾选了“记住我”，就把账号存进浏览器的 Cookie，有效期 30 天
                     if remember_me:
                         expire_date = datetime.datetime.now() + datetime.timedelta(days=30)
                         cookie_manager.set("saved_user", login_user, expires_at=expire_date)
@@ -122,7 +119,6 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in = True
                         st.session_state.current_user = reg_user
                         
-                        # 刚注册完，也顺便给人家记住 30 天
                         expire_date = datetime.datetime.now() + datetime.timedelta(days=30)
                         cookie_manager.set("saved_user", reg_user, expires_at=expire_date)
                         
@@ -130,17 +126,15 @@ if not st.session_state.logged_in:
                         st.rerun()
     st.stop()
 
-
 # ==========================================
 #        2. 主程序 (仅登录后可见)
 # ==========================================
 st.sidebar.title(f"👋 欢迎回来, {st.session_state.current_user}")
 
-# 💡 核心升级：退出登录时，必须把浏览器里的 Cookie 也撕毁
 if st.sidebar.button("🚪 退出登录"):
     st.session_state.logged_in = False
     st.session_state.current_user = ""
-    cookie_manager.delete("saved_user")  # 销毁免密金牌
+    cookie_manager.delete("saved_user")
     st.rerun()
 
 st.sidebar.divider()
