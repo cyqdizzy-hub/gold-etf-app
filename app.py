@@ -5,12 +5,15 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import hashlib
+import extra_streamlit_components as stx  # 新增：Cookie 管理神器
+import datetime                           # 新增：时间计算工具，用于设置过期时间
 
-# --- 1. 页面与图标设置 ---
+# --- 页面设置 ---
 st.set_page_config(page_title="通用投资决策仪表盘", page_icon="icon.png", layout="wide")
 
-# --- 2. 云端数据库连接配置 ---
-# 注意：这里的密码是从 Streamlit 安全中心读取的，绝不能直接写明文
+# ==========================================
+#        0. 云端多用户记忆引擎 (含加密)
+# ==========================================
 API_KEY = st.secrets["JSONBIN_KEY"]
 BIN_ID = st.secrets["JSONBIN_ID"]
 URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
@@ -44,10 +47,29 @@ def get_category(symbol):
     elif symbol.isalpha(): return "🇺🇸 美股"
     else: return "🌍 其他标的"
 
-# --- 3. 登录与注册系统 (防盗门) ---
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'current_user' not in st.session_state: st.session_state.current_user = ""
+# ==========================================
+#        1. 登录与注册验证系统 (加入 Cookie 自动登录)
+# ==========================================
+# 唤醒 Cookie 管理器
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
 
+cookie_manager = get_cookie_manager()
+
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = ""
+
+# 💡 核心升级：页面一加载，先去翻看浏览器里有没有叫 "saved_user" 的 Cookie
+saved_user = cookie_manager.get(cookie="saved_user")
+if saved_user and not st.session_state.logged_in:
+    # 如果找到了，直接给系统放行，跳过登录界面！
+    st.session_state.logged_in = True
+    st.session_state.current_user = saved_user
+
+# 如果既没有 Cookie，也没有在本次会话中登录过，就显示登录门
 if not st.session_state.logged_in:
     st.title("🔐 通用投资决策仪表盘")
     st.markdown("请先登录或注册您的专属云端账号。")
@@ -58,22 +80,34 @@ if not st.session_state.logged_in:
         with st.form("login_form"):
             login_user = st.text_input("用户名")
             login_pwd = st.text_input("密码", type="password")
-            if st.form_submit_button("登录", type="primary"):
+            # 💡 新增：记住我 选项框，默认勾选
+            remember_me = st.checkbox("记住我 (30天免登录)", value=True)
+            submit_login = st.form_submit_button("登录", type="primary")
+            
+            if submit_login:
                 db = load_all_cloud_data()
                 if login_user in db["users"] and db["users"][login_user] == hash_password(login_pwd):
                     st.session_state.logged_in = True
                     st.session_state.current_user = login_user
-                    st.success("登录成功！")
+                    
+                    # 💡 如果勾选了“记住我”，就把账号存进浏览器的 Cookie，有效期 30 天
+                    if remember_me:
+                        expire_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                        cookie_manager.set("saved_user", login_user, expires_at=expire_date)
+                        
+                    st.success("登录成功！正在进入您的专属空间...")
                     st.rerun()
                 else:
-                    st.error("❌ 用户名或密码错误。")
+                    st.error("❌ 用户名或密码错误，请重试。")
                     
     with tab_register:
         with st.form("register_form"):
             reg_user = st.text_input("设置用户名 (不少于3个字符)")
             reg_pwd = st.text_input("设置密码 (不少于6个字符)", type="password")
             reg_pwd_confirm = st.text_input("确认密码", type="password")
-            if st.form_submit_button("注册并登录"):
+            submit_register = st.form_submit_button("注册并登录")
+            
+            if submit_register:
                 if len(reg_user) < 3 or len(reg_pwd) < 6 or reg_pwd != reg_pwd_confirm:
                     st.error("请检查输入要求或确认密码是否一致！")
                 else:
@@ -84,18 +118,31 @@ if not st.session_state.logged_in:
                         db["users"][reg_user] = hash_password(reg_pwd)
                         db["watchlists"][reg_user] = {}
                         save_to_cloud(db)
+                        
                         st.session_state.logged_in = True
                         st.session_state.current_user = reg_user
+                        
+                        # 刚注册完，也顺便给人家记住 30 天
+                        expire_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                        cookie_manager.set("saved_user", reg_user, expires_at=expire_date)
+                        
                         st.success("✅ 注册成功！")
                         st.rerun()
-    st.stop() # 未登录则停止加载后续内容
+    st.stop()
 
-# --- 4. 核心系统 (登录后界面) ---
+
+# ==========================================
+#        2. 主程序 (仅登录后可见)
+# ==========================================
 st.sidebar.title(f"👋 欢迎回来, {st.session_state.current_user}")
+
+# 💡 核心升级：退出登录时，必须把浏览器里的 Cookie 也撕毁
 if st.sidebar.button("🚪 退出登录"):
     st.session_state.logged_in = False
     st.session_state.current_user = ""
+    cookie_manager.delete("saved_user")  # 销毁免密金牌
     st.rerun()
+
 st.sidebar.divider()
 
 if 'watchlist' not in st.session_state or st.session_state.get('last_user') != st.session_state.current_user:
@@ -124,12 +171,14 @@ for cat, items in categories_dict.items():
     for sym, data in items:
         col1, col2 = st.sidebar.columns([4, 1])
         btn_type = "primary" if st.session_state.sidebar_select == sym else "secondary"
+        
         display_name = data.get('name', '')
         btn_label = f"{display_name} ({sym})" if display_name else f"📊 {sym}"
         
         if col1.button(btn_label, key=f"sel_{sym}", type=btn_type, use_container_width=True):
             st.session_state.sidebar_select = sym
             st.rerun()
+            
         if col2.button("🗑️", key=f"del_{sym}", help=f"删除 {sym}"):
             del st.session_state.watchlist[sym]
             db = load_all_cloud_data()
@@ -169,12 +218,13 @@ def plot_candlestick(df, symbol, name):
     return fig
 
 st.title("📈 通用投资决策仪表盘")
+
 ui_key = default_sym if default_sym else "new_entry"
 
 with st.container():
     c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1, 1, 1.2])
     with c1: input_symbol = st.text_input("🔍 标的代码", value=default_sym, key=f"sym_{ui_key}", help="深市:.SZ, 沪市:.SS, 美股直接输")
-    with c2: input_name = st.text_input("🏷️ 标的名称", value=default_name, key=f"name_{ui_key}")
+    with c2: input_name = st.text_input("🏷️ 标的名称", value=default_name, key=f"name_{ui_key}", placeholder="如: 黄金ETF")
     with c3: input_cost = st.number_input("底仓成本", value=default_cost, step=0.01, key=f"cost_{ui_key}")
     with c4: input_qty = st.number_input("持仓数量", value=default_qty, step=100, key=f"qty_{ui_key}")
     
@@ -193,13 +243,17 @@ with st.container():
 if st.button("💾 将当前标的保存/更新至专属空间"):
     if input_symbol:
         st.session_state.watchlist[input_symbol] = {
-            "name": input_name, "cost": input_cost, "qty": input_qty, "category": get_category(input_symbol) 
+            "name": input_name, 
+            "cost": input_cost, 
+            "qty": input_qty,
+            "category": get_category(input_symbol) 
         }
         db = load_all_cloud_data()
         db["watchlists"][st.session_state.current_user] = st.session_state.watchlist
         save_to_cloud(db)
+        
         st.session_state.sidebar_select = input_symbol 
-        st.success("✅ 已成功保存！")
+        st.success(f"✅ 已成功保存！")
         st.rerun() 
 
 st.divider()
@@ -235,11 +289,15 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
         
         if current_p > ma60 and ma20 > ma60:
             st.success("📈 **多头趋势**：价格站上60日均线。")
-            if 0 < (current_p - ma20)/ma20 < 0.02: st.success("🎯 **绝佳买点**：已回调至20日线附近。")
+            if 0 < (current_p - ma20)/ma20 < 0.02: st.success("🎯 **绝佳买点**：已回调至20日线附近，支撑较强。")
             elif (current_p - ma20)/ma20 >= 0.02: st.warning("⏳ **注意追高**：偏离20日线较远，建议等待回调。")
         elif current_p < ma60:
-            st.error("📉 **空头/调整趋势**：已跌破60日生命线，严禁盲目加仓。")
+            st.error("📉 **空头/调整趋势**：已跌破60日生命线，严禁盲目加仓，等待企稳。")
         else:
             st.info("⚖️ **震荡整理**：趋势不清晰，多看少动。")
+            
+        if qty_add > 0:
+            st.markdown("---")
+            st.markdown(f"**🛡️ 本次加仓防守线：** 若跌破 20日线 ({ma20:.3f}) 平掉新仓；若跌破新成本线 ({new_cost:.3f}) 彻底清仓保本。")
 else:
     st.info("💡 请在上方确认代码后，点击“同步K线与现价”。")
