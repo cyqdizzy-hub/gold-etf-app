@@ -13,15 +13,20 @@ import os
 st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-#        🎨 深度 UI 美化 (CSS 注入)
+#        🎨 深度 UI 美化 (CSS 注入) - 侧边栏修复版
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* 1. 隐藏 Streamlit 默认的顶部导航菜单和底部水印，提升商业感 */
+        /* 1. 隐藏多余元素，但【保留】顶部的侧边栏呼出按钮 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
+        
+        /* 💡 修复核心：不再完全隐藏 header，而是将其背景设为透明 */
+        header {background-color: transparent !important;}
+        
+        /* 单独精准狙击，隐藏右上角的 Deploy(部署) 按钮 */
+        [data-testid="stAppDeployButton"] {display: none;}
         
         /* 2. 全局字体与背景微调 */
         .block-container {
@@ -131,12 +136,11 @@ if "u" in query_params and "p" in query_params and not st.session_state.logged_i
         st.session_state.logged_in, st.session_state.current_user = True, magic_user
 
 if not st.session_state.logged_in:
-    # 使用空白列将登录框挤到中间，更有 SaaS 级的高级感
     spacer1, login_col, spacer3 = st.columns([1, 1.5, 1])
     
     with login_col:
-        st.write("<br><br>", unsafe_allow_html=True) # 往下推一点
-        render_logo(width=100, use_column=True) # 居中渲染 Logo
+        st.write("<br><br>", unsafe_allow_html=True)
+        render_logo(width=100, use_column=True)
         st.markdown("<h2 class='login-header'>FactorX 灵犀终端</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>多因子量化投研与动态风控工作站</p>", unsafe_allow_html=True)
         
@@ -173,7 +177,6 @@ if not st.session_state.logged_in:
 # ==========================================
 #        2. 主程序 (侧边栏)
 # ==========================================
-# 侧边栏顶部渲染 Logo
 render_logo(width=60)
 st.sidebar.title(f"👋 {st.session_state.current_user}")
 st.sidebar.caption("FactorX Workspace Active 🟢")
