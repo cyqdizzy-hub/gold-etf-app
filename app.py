@@ -5,11 +5,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import hashlib
-import akshare as ak  # 💡 新增：国内顶级开源数据引擎备胎
+import akshare as ak
 from datetime import datetime, timedelta
 
 # --- 页面设置 ---
-st.set_page_config(page_title="多因子投研风控终端 3.1", page_icon="icon.png", layout="wide")
+st.set_page_config(page_title="多因子投研风控终端 3.3", page_icon="icon.png", layout="wide")
 
 # ==========================================
 #        0. 云端多用户记忆引擎
@@ -62,7 +62,7 @@ if "u" in query_params and "p" in query_params and not st.session_state.logged_i
         st.session_state.logged_in, st.session_state.current_user = True, magic_user
 
 if not st.session_state.logged_in:
-    st.title("🔐 多因子投研风控终端 3.1")
+    st.title("🔐 多因子投研风控终端 3.3")
     tab_login, tab_register = st.tabs(["🔑 账号登录", "📝 注册新账号"])
     with tab_login:
         with st.form("login_form"):
@@ -108,11 +108,10 @@ if 'watchlist' not in st.session_state or st.session_state.get('last_user') != s
     st.session_state.last_user = st.session_state.current_user
     st.session_state.sidebar_select = ""
 
-# 状态初始化
 if 'current_price' not in st.session_state: st.session_state.current_price = 0.0
 if 'df_history' not in st.session_state: st.session_state.df_history = pd.DataFrame()
 if 'fundamentals' not in st.session_state: st.session_state.fundamentals = {}
-if 'data_source' not in st.session_state: st.session_state.data_source = "" # 记录数据来源
+if 'data_source' not in st.session_state: st.session_state.data_source = ""
 
 if st.sidebar.button("➕ 手动输入新标的", type="primary" if st.session_state.sidebar_select == "" else "secondary", use_container_width=True):
     st.session_state.sidebar_select = ""
@@ -157,15 +156,12 @@ def fetch_multi_factor_data(symbol):
     fund_data = {"PE": None, "PEG": None, "ROE": None, "Margin": None, "52w_Change": None}
     source_name = "未获取"
     
-    # 💥 引擎 1：优先尝试 Yahoo Finance (适合全球与基本面)
     try:
         yf_df = yf.download(symbol, period="1y", progress=False, threads=False)
         if yf_df is not None and len(yf_df) > 20:
             if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
             df = yf_df
             source_name = "Yahoo Finance Global API"
-            
-            # 抓取基本面
             ticker = yf.Ticker(symbol)
             info = ticker.info
             fund_data = {
@@ -178,26 +174,21 @@ def fetch_multi_factor_data(symbol):
     except Exception:
         pass
 
-    # 💥 引擎 2：灾备切换！如果 YF 失败，且是国内资产，启动 AKShare (东方财富接口)
     if df.empty and (symbol.endswith(".SZ") or symbol.endswith(".SS")):
         try:
-            code = symbol.split('.')[0] # AKShare 只需要 6 位数字代码
-            # 获取东财前复权日 K 线
+            code = symbol.split('.')[0]
             ak_df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
             if not ak_df.empty:
-                # 统一数据格式
                 ak_df.rename(columns={'日期':'Date', '开盘':'Open', '收盘':'Close', '最高':'High', '最低':'Low', '成交量':'Volume'}, inplace=True)
                 ak_df.index = pd.to_datetime(ak_df['Date'])
-                df = ak_df.tail(250) # 取最近一年
+                df = ak_df.tail(250)
                 source_name = "AKShare (东方财富数据中心)"
         except Exception:
             pass
             
-    # 如果两个引擎都挂了
     if df.empty:
-        return None, {}, "主备双引擎数据抓取均失败，请检查代码格式或网络状态。", ""
+        return None, {}, "主备双引擎数据抓取均失败，请检查代码或网络。", ""
 
-    # 计算技术面与多因子 (无论来自哪个引擎，统一计算)
     try:
         df['MA20'], df['MA60'] = df['Close'].rolling(window=20).mean(), df['Close'].rolling(window=60).mean()
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
@@ -226,9 +217,9 @@ def plot_candlestick(df, symbol, name):
     return fig
 
 # ==========================================
-#        4. UI 展示面板
+#        4. UI 展示面板与智能打分
 # ==========================================
-st.title("🛰️ 3.1 多因子投研风控终端")
+st.title("🛰️ 3.3 多因子投研风控终端")
 ui_key = default_sym if default_sym else "new_entry"
 
 with st.container():
@@ -247,7 +238,7 @@ with st.container():
                         st.session_state.df_history = df_h
                         st.session_state.current_price = float(df_h.iloc[-1]['Close'])
                         st.session_state.fundamentals = funds
-                        st.session_state.data_source = source # 记录当前数据来源
+                        st.session_state.data_source = source
                     else: st.error(f"❌ {msg}")
 
 if st.button("💾 更新至专属空间"):
@@ -265,10 +256,8 @@ st.divider()
 
 if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     
-    # 💡 显著展示数据来源水印
     st.caption(f"**📡 底层数据信源：** 已通过智能路由接入 `{st.session_state.data_source}`")
     
-    # 顶部：K线与风控推演
     col_chart, col_risk = st.columns([2, 1], gap="medium")
     with col_chart:
         st.plotly_chart(plot_candlestick(st.session_state.df_history, input_symbol, input_name), use_container_width=True)
@@ -291,45 +280,111 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     df = st.session_state.df_history
     fund = st.session_state.fundamentals
     
+    ma20, ma60 = df.iloc[-1]['MA20'], df.iloc[-1]['MA60']
+    rsi = df.iloc[-1]['RSI']
+    pe = fund.get('PE')
+    roe = fund.get('ROE')
+    
     with f1:
-        st.info("🧠 **资金与情绪面 (Momentum)**")
-        rsi = df.iloc[-1]['RSI']
+        st.info("🧠 **资金与情绪面**")
         st.write(f"**RSI (14日):** {rsi:.1f}")
-        if rsi > 70: st.error("🔥 情绪极度狂热 (超买区域)，警惕砸盘。")
-        elif rsi < 30: st.success("🧊 情绪极度冰点 (超卖区域)，随时可能反弹。")
+        if rsi > 70: st.error("🔥 情绪狂热 (超买)，警惕砸盘。")
+        elif rsi < 30: st.success("🧊 情绪冰点 (超卖)，随时反弹。")
         else: st.write("⚖️ 情绪中性。")
-        
         vol, vol_ma5 = df.iloc[-1]['Volume'], df.iloc[-1]['Vol_MA5']
-        if vol > vol_ma5 * 1.8: st.write("⚡ **今日量能：** 剧烈放量异动！")
-        elif vol < vol_ma5 * 0.6: st.write("💤 **今日量能：** 极致缩量观望。")
-        else: st.write("🌊 **今日量能：** 资金平稳交投。")
+        if vol > vol_ma5 * 1.8: st.write("⚡ 今日剧烈放量异动！")
+        elif vol < vol_ma5 * 0.6: st.write("💤 今日极致缩量观望。")
+        else: st.write("🌊 资金平稳交投。")
 
     with f2:
-        st.success("💼 **深度基本面 (Fundamentals)**")
-        roe = fund.get('ROE')
+        st.success("💼 **深度基本面**")
         margin = fund.get('Margin')
-        pe = fund.get('PE')
-        
-        st.write(f"**ROE (净资产收益率):** {f'{roe*100:.1f}%' if roe else '未知'}")
+        st.write(f"**ROE:** {f'{roe*100:.1f}%' if roe else '未知'}")
         if roe and roe > 0.15: st.caption("🏆 卓越的赚钱机器 (ROE>15%)")
-        
-        st.write(f"**净利润率:** {f'{margin*100:.1f}%' if margin else '未知'}")
-        
         pe_str = f"{pe:.1f}" if pe else '未知'
         st.write(f"**动态市盈率 (PE):** {pe_str}")
         if pe and pe < 15: st.caption("💎 估值处于安全水域")
-        elif pe and pe > 40: st.caption("⚠️ 估值溢价较高，需极高增速消化")
+        elif pe and pe > 40: st.caption("⚠️ 估值溢价较高")
 
     with f3:
-        st.warning("🏛️ **趋势与宏观对比 (Macro Trend)**")
-        ma20, ma60 = df.iloc[-1]['MA20'], df.iloc[-1]['MA60']
-        if current_p > ma60 and ma20 > ma60: st.write("📈 **中期趋势：** 稳健多头排列。")
-        elif current_p < ma60: st.write("📉 **中期趋势：** 空头破位，深水区。")
-        else: st.write("⚖️ **中期趋势：** 震荡方向不明。")
-        
+        st.warning("🏛️ **趋势与宏观对比**")
+        if current_p > ma60 and ma20 > ma60: st.write("📈 **中期趋势：** 多头排列。")
+        elif current_p < ma60: st.write("📉 **中期趋势：** 空头破位。")
+        else: st.write("⚖️ **中期趋势：** 震荡不明。")
         w52 = fund.get('52w_Change')
-        st.write(f"**近一年涨跌幅 (Beta):** {f'{w52*100:.1f}%' if w52 else '未知'}")
-        if w52 and w52 > 0.2: st.caption("🚀 过去一年显著跑赢多数大盘指数。")
-        elif w52 and w52 < -0.1: st.caption("⚓ 过去一年走势弱于全球宏观大盘。")
+        st.write(f"**近一年涨跌幅:** {f'{w52*100:.1f}%' if w52 else '未知'}")
+        if w52 and w52 > 0.2: st.caption("🚀 过去一年显著跑赢大盘。")
+        elif w52 and w52 < -0.1: st.caption("⚓ 过去一年走势弱于大盘。")
+
+    st.markdown("---")
+    st.markdown("### 📝 综合诊断结论与操作建议")
+    
+    score = 0
+    reasons = []
+
+    if current_p > ma60 and ma20 > ma60:
+        score += 1
+        reasons.append("✔ **趋势面向好：** 价格稳居60日生命线及20日均线上方，处于多头通道。")
+    elif current_p < ma60:
+        score -= 1
+        reasons.append("❌ **趋势面走弱：** 价格已跌破60日生命线，中线资金呈流出态势。")
+    else:
+        reasons.append("➖ **趋势面纠结：** 均线系统方向未明，处于震荡整理期。")
+
+    if pe is not None:
+        if pe < 20 and (roe is not None and roe > 0.10):
+            score += 1
+            reasons.append("✔ **基本面优秀：** 估值较低（PE<20）且盈利能力强劲（ROE>10%），具备长线配置价值。")
+        elif pe > 40:
+            score -= 1
+            reasons.append("❌ **基本面高估：** 动态市盈率偏高，短期存在杀估值的泡沫破裂风险。")
+
+    if rsi > 70:
+        score -= 1
+        reasons.append("❌ **情绪面过热：** RSI指标进入超买区，短期散户FOMO情绪严重，随时面临回调。")
+    elif rsi < 30:
+        score += 1
+        reasons.append("✔ **情绪面超卖：** RSI指标极度冰点，做空动能衰竭，具备技术性反弹条件。")
+    
+    if score >= 2:
+        st.success("🟢 **核心结论：强烈看多 (Strong Buy / Hold)**")
+        st.write("多维因子产生共振向好，建议积极配置或坚定持有底仓。")
+    elif score == 1:
+        st.info("🟡 **核心结论：谨慎乐观 (Cautious Optimism)**")
+        st.write("整体偏向多头，基本面或趋势有亮点，可逢低适度建仓，但需注意防守。")
+    elif score == 0:
+        st.warning("⚪ **核心结论：中性观望 (Neutral)**")
+        st.write("多空因素交织，缺乏明确的单边驱动力，建议多看少动，等待方向明朗。")
+    else:
+        st.error("🔴 **核心结论：防范风险 (Risk Warning / Sell)**")
+        st.write("技术面破位或估值严重透支，建议减仓规避或耐心等待真正的企稳信号，切忌盲目接飞刀。")
+
+    with st.expander("🔍 点击查看详细评分理由", expanded=True):
+        for reason in reasons:
+            st.markdown(reason)
+
+    # ==========================================
+    # 💡 新增：投研模型说明与数据字典
+    # ==========================================
+    st.markdown("---")
+    with st.expander("📖 投研模型说明与数据来源 (Methodology & Sources)", expanded=False):
+        st.markdown("""
+        #### 1. 资金与情绪面 (Momentum & Sentiment)
+        * **数据来源：** K线衍生计算 (Yahoo Finance / AKShare)
+        * **逻辑依据：** * **RSI (相对强弱指数)：** 采用14日周期计算。`RSI > 70` 被视为市场极度贪婪（超买区），系统予以扣分（-1）；`RSI < 30` 被视为市场极度恐慌（超卖区），具备反弹势能，系统予以加分（+1）。
+            * **量能异动：** 对比当日成交量与过去5日平均成交量（Vol_MA5）。若超出均量 1.8 倍，视为资金强介入/强出逃预警。
+        
+        #### 2. 深度基本面 (Fundamentals)
+        * **数据来源：** Yahoo Finance API 公司财报数据底层接口 (`trailingPE`, `returnOnEquity` 等)
+        * **逻辑依据：** * **PE (动态市盈率)：** 衡量回本周期。若 `PE < 20` 且 `ROE > 10%`，代表公司既便宜又能赚钱，符合价值投资审美，系统加分（+1）。若 `PE > 40`，除非有极高成长性消化，否则视为泡沫风险，系统扣分（-1）。
+            * **ROE (净资产收益率)：** 巴菲特最看重的指标。`ROE > 15%` 判定为优质资产。*(注：部分 A 股或宽基 ETF 无直接财报接口，此项不参与打分。)*
+
+        #### 3. 趋势与宏观对比 (Macro Trend)
+        * **数据来源：** 日K线移动平均计算，及52周价格对比。
+        * **逻辑依据：** * **双均线趋势：** 20日线为短期防守位，60日线为牛熊生命线。若现价站稳双线（`现价 > MA60` 且 `MA20 > MA60`），视为右侧交易的绝对多头，系统加分（+1）；跌破 MA60 则视为趋势走坏，系统扣分（-1）。
+            
+        > **⚠️ 免责声明：** 本系统评级机制由固定量化因子（趋势、估值、情绪）赋予机械权重计算得出。结论仅作为交易时的防冲动“交叉验证”参考工具，**绝不构成任何实质性的买卖及投资理财建议**。交易决策需结合当时宏观政策及个人风险承受能力独立做出。
+        """)
+
 else:
     st.info("💡 请在上方确认代码后，点击“同步全维数据”。")
