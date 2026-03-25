@@ -1,5 +1,6 @@
 streamlit
-yfinance>=0.2.37
+yfinance
 pandas
 plotly
 requests
+akshare
