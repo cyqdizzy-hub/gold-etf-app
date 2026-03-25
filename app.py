@@ -7,15 +7,84 @@ import requests
 import hashlib
 import akshare as ak
 from datetime import datetime, timedelta
+import os
 
-# --- 页面设置 ---
-st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", layout="wide")
+# --- 页面设置 (极宽布局) ---
+st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", layout="wide", initial_sidebar_state="expanded")
+
+# ==========================================
+#        🎨 深度 UI 美化 (CSS 注入)
+# ==========================================
+def inject_custom_css():
+    st.markdown("""
+        <style>
+        /* 1. 隐藏 Streamlit 默认的顶部导航菜单和底部水印，提升商业感 */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        /* 2. 全局字体与背景微调 */
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+
+        /* 3. 美化 Metric 数据看板 (卡片化 + 悬浮阴影) */
+        div[data-testid="metric-container"] {
+            background-color: rgba(130, 130, 130, 0.05);
+            border: 1px solid rgba(130, 130, 130, 0.2);
+            padding: 15px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        div[data-testid="metric-container"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
+
+        /* 4. 美化所有 Button 按钮 (增加圆角与交互动效) */
+        .stButton > button {
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 10px rgba(0,0,0,0.15);
+        }
+        
+        /* 5. 登录界面居中对齐 */
+        .login-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+inject_custom_css()
+
+# ==========================================
+#        🖼️ 智能 Logo 渲染模块
+# ==========================================
+def render_logo(width=80, use_column=False):
+    """智能寻找本地 icon.png 并渲染，找不到则不报错"""
+    if os.path.exists("icon.png"):
+        if use_column:
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image("icon.png", width=width, use_container_width=False)
+        else:
+            st.image("icon.png", width=width)
+    else:
+        if use_column:
+            st.markdown("<h1 style='text-align: center;'>🛰️</h1>", unsafe_allow_html=True)
 
 # ==========================================
 #        0. 云端多用户记忆引擎
 # ==========================================
-API_KEY = st.secrets["JSONBIN_KEY"]
-BIN_ID = st.secrets["JSONBIN_ID"]
+API_KEY = st.secrets.get("JSONBIN_KEY", "")
+BIN_ID = st.secrets.get("JSONBIN_ID", "")
 URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
 HEADERS = {"X-Master-Key": API_KEY, "Content-Type": "application/json"}
 
@@ -48,7 +117,7 @@ def get_category(symbol):
     else: return "🌍 其他标的"
 
 # ==========================================
-#        1. 登录系统 (含 Magic Link 免密)
+#        1. 登录系统 (含高级居中排版)
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'current_user' not in st.session_state: st.session_state.current_user = ""
@@ -62,43 +131,54 @@ if "u" in query_params and "p" in query_params and not st.session_state.logged_i
         st.session_state.logged_in, st.session_state.current_user = True, magic_user
 
 if not st.session_state.logged_in:
-    st.title("🔐 FactorX (灵犀终端) - 授权验证")
-    st.markdown("欢迎接入 FactorX 多因子投研引擎。请验证您的通行密钥。")
-    tab_login, tab_register = st.tabs(["🔑 身份接入", "📝 申请密钥"])
-    with tab_login:
-        with st.form("login_form"):
-            login_user = st.text_input("终端标识 (用户名)")
-            login_pwd = st.text_input("安全密钥 (密码)", type="password")
-            if st.form_submit_button("接入终端", type="primary"):
-                db = load_all_cloud_data()
-                if login_user in db["users"] and db["users"][login_user] == hash_password(login_pwd):
-                    st.session_state.logged_in, st.session_state.current_user = True, login_user
-                    st.rerun()
-                else: st.error("❌ 密钥校验失败。")
-    with tab_register:
-        with st.form("register_form"):
-            reg_user = st.text_input("设置终端标识 (≥3位)")
-            reg_pwd = st.text_input("设置安全密钥 (≥6位)", type="password")
-            reg_pwd_confirm = st.text_input("确认密钥", type="password")
-            if st.form_submit_button("注册并接入"):
-                if len(reg_user) < 3 or len(reg_pwd) < 6 or reg_pwd != reg_pwd_confirm:
-                    st.error("检查输入要求或确认密钥一致性！")
-                else:
+    # 使用空白列将登录框挤到中间，更有 SaaS 级的高级感
+    spacer1, login_col, spacer3 = st.columns([1, 1.5, 1])
+    
+    with login_col:
+        st.write("<br><br>", unsafe_allow_html=True) # 往下推一点
+        render_logo(width=100, use_column=True) # 居中渲染 Logo
+        st.markdown("<h2 class='login-header'>FactorX 灵犀终端</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray;'>多因子量化投研与动态风控工作站</p>", unsafe_allow_html=True)
+        
+        tab_login, tab_register = st.tabs(["🔑 身份接入", "📝 申请密钥"])
+        with tab_login:
+            with st.form("login_form"):
+                login_user = st.text_input("终端标识 (用户名)")
+                login_pwd = st.text_input("安全密钥 (密码)", type="password")
+                if st.form_submit_button("安全接入", type="primary", use_container_width=True):
                     db = load_all_cloud_data()
-                    if reg_user in db["users"]: st.error("❌ 标识已被占用。")
-                    else:
-                        db["users"][reg_user] = hash_password(reg_pwd)
-                        db["watchlists"][reg_user] = {}
-                        save_to_cloud(db)
-                        st.session_state.logged_in, st.session_state.current_user = True, reg_user
+                    if login_user in db["users"] and db["users"][login_user] == hash_password(login_pwd):
+                        st.session_state.logged_in, st.session_state.current_user = True, login_user
                         st.rerun()
+                    else: st.error("❌ 密钥校验失败。")
+        with tab_register:
+            with st.form("register_form"):
+                reg_user = st.text_input("设置终端标识 (≥3位)")
+                reg_pwd = st.text_input("设置安全密钥 (≥6位)", type="password")
+                reg_pwd_confirm = st.text_input("确认密钥", type="password")
+                if st.form_submit_button("注册并初始化空间", use_container_width=True):
+                    if len(reg_user) < 3 or len(reg_pwd) < 6 or reg_pwd != reg_pwd_confirm:
+                        st.error("检查输入要求或确认密钥一致性！")
+                    else:
+                        db = load_all_cloud_data()
+                        if reg_user in db["users"]: st.error("❌ 标识已被占用。")
+                        else:
+                            db["users"][reg_user] = hash_password(reg_pwd)
+                            db["watchlists"][reg_user] = {}
+                            save_to_cloud(db)
+                            st.session_state.logged_in, st.session_state.current_user = True, reg_user
+                            st.rerun()
     st.stop()
 
 # ==========================================
 #        2. 主程序 (侧边栏)
 # ==========================================
-st.sidebar.title(f"👋 {st.session_state.current_user} 的灵犀工作站")
-if st.sidebar.button("🚪 断开连接"):
+# 侧边栏顶部渲染 Logo
+render_logo(width=60)
+st.sidebar.title(f"👋 {st.session_state.current_user}")
+st.sidebar.caption("FactorX Workspace Active 🟢")
+
+if st.sidebar.button("🚪 断开连接", use_container_width=True):
     st.session_state.logged_in, st.session_state.current_user = False, ""
     st.rerun()
 st.sidebar.divider()
@@ -214,13 +294,21 @@ def plot_candlestick(df, symbol, name):
     fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name='20日线', line=dict(color='#ffca28', width=1.5)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], name='60日线', line=dict(color='#2196f3', width=1.5)), row=1, col=1)
     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='成交量', marker_color='#90caf9'), row=2, col=1)
-    fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=450, margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
+    fig.update_layout(
+        title=title, 
+        xaxis_rangeslider_visible=False, 
+        height=480, 
+        margin=dict(l=10, r=10, t=40, b=10), 
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
     return fig
 
 # ==========================================
 #        4. UI 展示面板与智能打分
 # ==========================================
-st.title("🛰️ FactorX (灵犀终端) - 核心指挥舱")
+st.title("🛰️ FactorX 核心指挥舱")
 ui_key = default_sym if default_sym else "new_entry"
 
 with st.container():
@@ -259,7 +347,7 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     
     st.caption(f"**📡 FactorX 实时数据链：** 已成功接驳 `{st.session_state.data_source}`")
     
-    col_chart, col_risk = st.columns([2, 1], gap="medium")
+    col_chart, col_risk = st.columns([2.2, 1], gap="large")
     with col_chart:
         st.plotly_chart(plot_candlestick(st.session_state.df_history, input_symbol, input_name), use_container_width=True)
     with col_risk:
@@ -274,9 +362,9 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
         st.metric("新保本点", f"{new_cost:.3f}", f"成本变化 {new_cost-input_cost:.3f}" if qty_add>0 else None, delta_color="inverse")
         st.metric("利润安全垫", f"{safe_cushion:.2f}%")
         if qty_add > 0:
-            st.caption(f"**灵犀铁律：** 若跌破新成本线 {new_cost:.2f}，立即执行止损保本程序。")
+            st.info(f"**💡 灵犀铁律：** 若跌破新成本线 {new_cost:.2f}，立即执行止损保本程序。")
 
-    st.markdown("### 📊 多因子全息体检报告")
+    st.markdown("<br>### 📊 多因子全息体检报告", unsafe_allow_html=True)
     f1, f2, f3 = st.columns(3)
     df = st.session_state.df_history
     fund = st.session_state.fundamentals
@@ -373,7 +461,7 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
             * **量能异动：** 对比当日成交量与过去5日平均成交量（Vol_MA5）。若超出均量 1.8 倍，视为资金强介入/强出逃预警。
         
         #### 2. 深度基本面 (Fundamentals)
-        * **数据来源：** Yahoo Finance API 公司财报数据底层接口 (`trailingPE`, `returnOnEquity` 等)
+        * **数据来源：** Yahoo Finance API 公司财报数据底层接口
         * **逻辑依据：** * **PE (动态市盈率)：** 衡量回本周期。若 `PE < 20` 且 `ROE > 10%`，代表公司既便宜又能赚钱，符合价值投资审美，系统加分（+1）。若 `PE > 40`，除非有极高成长性消化，否则视为泡沫风险，系统扣分（-1）。
             * **ROE (净资产收益率)：** 衡量资产盈利能力的核心指标。`ROE > 15%` 判定为优质印钞机。*(注：部分 A 股或宽基 ETF 无直接财报接口，此项自动略过不参与打分。)*
 
