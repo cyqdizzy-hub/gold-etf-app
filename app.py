@@ -8,6 +8,7 @@ import hashlib
 import akshare as ak
 from datetime import datetime, timedelta
 import os
+import base64  # 用于处理 Logo 居中显示的底层库
 
 # --- 页面设置 (极宽布局) ---
 st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", layout="wide", initial_sidebar_state="expanded")
@@ -18,15 +19,19 @@ st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", lay
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* 隐藏多余元素，保留侧边栏控制键 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {background-color: transparent !important;}
         [data-testid="stAppDeployButton"] {display: none;}
         
+        /* 全局排版微调 */
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
         }
+
+        /* 数据卡片悬浮动效 */
         div[data-testid="metric-container"] {
             background-color: rgba(130, 130, 130, 0.05);
             border: 1px solid rgba(130, 130, 130, 0.2);
@@ -39,6 +44,8 @@ def inject_custom_css():
             transform: translateY(-2px);
             box-shadow: 0 8px 15px rgba(0,0,0,0.1);
         }
+
+        /* 按钮圆角与悬浮动效 */
         .stButton > button {
             border-radius: 8px;
             font-weight: 600;
@@ -48,15 +55,19 @@ def inject_custom_css():
             transform: translateY(-2px);
             box-shadow: 0 5px 10px rgba(0,0,0,0.15);
         }
+        
+        /* 登录框标题居中 */
         .login-header {
             text-align: center;
             margin-bottom: 20px;
         }
-        /* 新闻链接悬浮效果 */
+
+        /* 新闻链接优雅悬浮效果 */
         .news-link {
             text-decoration: none;
             color: #1E88E5;
             font-weight: 500;
+            transition: color 0.2s;
         }
         .news-link:hover {
             text-decoration: underline;
@@ -68,18 +79,25 @@ def inject_custom_css():
 inject_custom_css()
 
 # ==========================================
-#        🖼️ 智能 Logo 渲染模块
+#        🖼️ 智能 Logo 渲染模块 (完美居中版)
 # ==========================================
-def render_logo(width=80, use_column=False):
+def render_logo(width=80, center=False):
+    """智能寻找本地 icon.png 并渲染，使用 HTML/Base64 保证绝对居中和高级阴影"""
     if os.path.exists("icon.png"):
-        if use_column:
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image("icon.png", width=width, use_container_width=False)
+        if center:
+            with open("icon.png", "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode()
+            html_code = f"""
+            <div style="display: flex; justify-content: center; margin-bottom: 15px;">
+                <img src="data:image/png;base64,{encoded_string}" 
+                     style="width: {width}px; height: {width}px; border-radius: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.3);">
+            </div>
+            """
+            st.markdown(html_code, unsafe_allow_html=True)
         else:
             st.image("icon.png", width=width)
     else:
-        if use_column:
+        if center:
             st.markdown("<h1 style='text-align: center;'>🛰️</h1>", unsafe_allow_html=True)
 
 # ==========================================
@@ -119,7 +137,7 @@ def get_category(symbol):
     else: return "🌍 其他标的"
 
 # ==========================================
-#        1. 登录系统 
+#        1. 登录系统 (居中排版)
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'current_user' not in st.session_state: st.session_state.current_user = ""
@@ -134,9 +152,10 @@ if "u" in query_params and "p" in query_params and not st.session_state.logged_i
 
 if not st.session_state.logged_in:
     spacer1, login_col, spacer3 = st.columns([1, 1.5, 1])
+    
     with login_col:
         st.write("<br><br>", unsafe_allow_html=True)
-        render_logo(width=100, use_column=True)
+        render_logo(width=100, center=True) # 调用居中 Logo
         st.markdown("<h2 class='login-header'>FactorX 灵犀终端</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>多因子量化投研与动态风控工作站</p>", unsafe_allow_html=True)
         
@@ -173,7 +192,7 @@ if not st.session_state.logged_in:
 # ==========================================
 #        2. 主程序 (侧边栏)
 # ==========================================
-render_logo(width=60)
+render_logo(width=60, center=False)
 st.sidebar.title(f"👋 {st.session_state.current_user}")
 st.sidebar.caption("FactorX Workspace Active 🟢")
 
@@ -192,7 +211,7 @@ if 'current_price' not in st.session_state: st.session_state.current_price = 0.0
 if 'df_history' not in st.session_state: st.session_state.df_history = pd.DataFrame()
 if 'fundamentals' not in st.session_state: st.session_state.fundamentals = {}
 if 'data_source' not in st.session_state: st.session_state.data_source = ""
-if 'news_data' not in st.session_state: st.session_state.news_data = [] # 新增：新闻状态存储
+if 'news_data' not in st.session_state: st.session_state.news_data = [] # 存储抓取到的新闻
 
 if st.sidebar.button("➕ 载入新监测标的", type="primary" if st.session_state.sidebar_select == "" else "secondary", use_container_width=True):
     st.session_state.sidebar_select = ""
@@ -229,19 +248,19 @@ default_cost = float(default_data.get('cost', 0.0))
 default_qty = int(default_data.get('qty', 0))
 
 # ==========================================
-#        3. 引擎：数据 + 因子 + 资讯抓取
+#        3. 核心引擎：数据 + 因子 + 资讯抓取
 # ==========================================
-@st.cache_data(ttl=1800, show_spinner=False) # 缓存缩短到半小时，保证新闻新鲜度
+@st.cache_data(ttl=1800, show_spinner=False) # 缓存30分钟，保证新闻新鲜度
 def fetch_multi_factor_data(symbol):
     df = pd.DataFrame()
     fund_data = {"PE": None, "PEG": None, "ROE": None, "Margin": None, "52w_Change": None}
     source_name = "未获取"
     news_list = []
     
-    # --- 1. 尝试获取海外主数据 & Yahoo 新闻 ---
+    # --- 1. 优先获取海外数据 & Yahoo 新闻 ---
     try:
         ticker = yf.Ticker(symbol)
-        yf_df = ticker.history(period="1y") # 使用 history 替代 download 兼容性更好
+        yf_df = ticker.history(period="1y") 
         if yf_df is not None and len(yf_df) > 20:
             df = yf_df
             source_name = "Yahoo Finance Global API"
@@ -253,7 +272,7 @@ def fetch_multi_factor_data(symbol):
                 "Margin": info.get('profitMargins', None),
                 "52w_Change": info.get('52WeekChange', None)
             }
-            # 抓取 Yahoo 英文新闻
+            # 抓取外媒新闻
             yf_news = ticker.news
             if yf_news:
                 for item in yf_news[:5]:
@@ -267,7 +286,7 @@ def fetch_multi_factor_data(symbol):
     except Exception:
         pass
 
-    # --- 2. 灾备切换：如果是 A 股，强制拉取东财数据 & 东财中文资讯 ---
+    # --- 2. 灾备与A股增强：强制拉取东财数据 & 东财研报/资讯 ---
     is_a_share = symbol.endswith(".SZ") or symbol.endswith(".SS")
     if df.empty and is_a_share:
         try:
@@ -281,13 +300,13 @@ def fetch_multi_factor_data(symbol):
         except Exception:
             pass
             
-    # 如果是A股，无论K线来自哪里，覆盖抓取东方财富中文新闻
+    # 如果是A股，覆盖抓取东方财富中文新闻
     if is_a_share:
         try:
             code = symbol.split('.')[0]
             ak_news = ak.stock_news_em(symbol=code)
             if not ak_news.empty:
-                news_list = [] # 清空可能抓到的纯英文无用新闻
+                news_list = [] # 覆盖掉 Yahoo 可能抓出的冗余信息
                 for idx, row in ak_news.head(5).iterrows():
                     news_list.append({
                         "title": row.get('新闻标题', 'A股关联资讯'),
@@ -301,7 +320,7 @@ def fetch_multi_factor_data(symbol):
     if df.empty:
         return None, {}, "主备双引擎数据抓取均失败，请检查代码或网络。", "", []
 
-    # --- 3. 计算多因子指标 ---
+    # --- 3. 计算技术面指标 ---
     try:
         df['MA20'], df['MA60'] = df['Close'].rolling(window=20).mean(), df['Close'].rolling(window=60).mean()
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
@@ -338,7 +357,7 @@ def plot_candlestick(df, symbol, name):
     return fig
 
 # ==========================================
-#        4. UI 展示面板与智能打分
+#        4. UI 展示面板与多维扫描
 # ==========================================
 st.title("🛰️ FactorX 核心指挥舱")
 ui_key = default_sym if default_sym else "new_entry"
@@ -354,13 +373,14 @@ with st.container():
         if st.button("🔄 启动灵犀多维扫描", type="primary", use_container_width=True):
             if input_symbol:
                 with st.spinner(f'FactorX 引擎正在深度解析 {input_symbol} 并搜寻全球资讯...'):
+                    # 💡 这里接收了最新加入的 news 资讯数据
                     df_h, funds, msg, source, news = fetch_multi_factor_data(input_symbol)
                     if df_h is not None:
                         st.session_state.df_history = df_h
                         st.session_state.current_price = float(df_h.iloc[-1]['Close'])
                         st.session_state.fundamentals = funds
                         st.session_state.data_source = source
-                        st.session_state.news_data = news # 存储新闻数据
+                        st.session_state.news_data = news 
                     else: st.error(f"❌ {msg}")
 
 if st.button("💾 将标的写入 FactorX 云端矩阵"):
@@ -441,7 +461,7 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     st.markdown("---")
     
     # ==========================================
-    # 💡 核心升级：情报与诊断双栏排版
+    # 💡 核心展示：左侧机器打分，右侧新闻舆情
     # ==========================================
     col_diag, col_news = st.columns([1.5, 1], gap="large")
     
@@ -491,14 +511,13 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
             for reason in reasons:
                 st.markdown(reason)
 
-    # 💡 新增：灵犀情报局面板
     with col_news:
         st.markdown("### 📰 灵犀情报局")
         st.caption("关联异动研报与机构动向")
         
         if st.session_state.news_data:
             for item in st.session_state.news_data:
-                # 使用 HTML 构建极简的卡片式新闻链接
+                # 渲染带链接的新闻标题与来源
                 st.markdown(f"""
                 <div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px dashed rgba(130,130,130,0.3);">
                     <a href="{item['link']}" target="_blank" class="news-link" style="font-size: 14px; line-height: 1.4;">
@@ -518,7 +537,7 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
         #### 1. 资金与情绪面 (Momentum & Sentiment)
         * **数据来源：** K线衍生计算 (Yahoo Finance / AKShare 双引擎)
         * **逻辑依据：** * **RSI (相对强弱指数)：** `RSI > 70` 视为超买区，扣分（-1）；`RSI < 30` 视为超卖区，加分（+1）。
-            * **量能异动：** 对比当日与过去5日平均成交量。超出 1.8 倍视为资金强介入/强出逃预警。
+            * **量能异动：** 对比当日与过去5日平均成交量。超出 1.8 倍视为资金强介入预警。
         
         #### 2. 深度基本面 (Fundamentals)
         * **数据来源：** 财报底层接口
