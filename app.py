@@ -8,7 +8,7 @@ import hashlib
 import akshare as ak
 from datetime import datetime, timedelta
 import os
-import base64  # 用于处理 Logo 居中显示的底层库
+import base64
 
 # --- 页面设置 (极宽布局) ---
 st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", layout="wide", initial_sidebar_state="expanded")
@@ -19,19 +19,15 @@ st.set_page_config(page_title="FactorX (灵犀终端)", page_icon="🛰️", lay
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* 隐藏多余元素，保留侧边栏控制键 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {background-color: transparent !important;}
         [data-testid="stAppDeployButton"] {display: none;}
         
-        /* 全局排版微调 */
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
         }
-
-        /* 数据卡片悬浮动效 */
         div[data-testid="metric-container"] {
             background-color: rgba(130, 130, 130, 0.05);
             border: 1px solid rgba(130, 130, 130, 0.2);
@@ -44,8 +40,6 @@ def inject_custom_css():
             transform: translateY(-2px);
             box-shadow: 0 8px 15px rgba(0,0,0,0.1);
         }
-
-        /* 按钮圆角与悬浮动效 */
         .stButton > button {
             border-radius: 8px;
             font-weight: 600;
@@ -55,14 +49,10 @@ def inject_custom_css():
             transform: translateY(-2px);
             box-shadow: 0 5px 10px rgba(0,0,0,0.15);
         }
-        
-        /* 登录框标题居中 */
         .login-header {
             text-align: center;
             margin-bottom: 20px;
         }
-
-        /* 新闻链接优雅悬浮效果 */
         .news-link {
             text-decoration: none;
             color: #1E88E5;
@@ -73,16 +63,32 @@ def inject_custom_css():
             text-decoration: underline;
             color: #0D47A1;
         }
+        .report-btn {
+            display: inline-block;
+            padding: 10px 15px;
+            margin-top: 10px;
+            background-color: #f0f2f6;
+            color: #31333F;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid #dcdcdc;
+            transition: all 0.2s;
+        }
+        .report-btn:hover {
+            background-color: #e0e2e6;
+            color: #1E88E5;
+            border-color: #1E88E5;
+        }
         </style>
     """, unsafe_allow_html=True)
 
 inject_custom_css()
 
 # ==========================================
-#        🖼️ 智能 Logo 渲染模块 (完美居中版)
+#        🖼️ 智能 Logo 渲染模块
 # ==========================================
 def render_logo(width=80, center=False):
-    """智能寻找本地 icon.png 并渲染，使用 HTML/Base64 保证绝对居中和高级阴影"""
     if os.path.exists("icon.png"):
         if center:
             with open("icon.png", "rb") as image_file:
@@ -137,7 +143,7 @@ def get_category(symbol):
     else: return "🌍 其他标的"
 
 # ==========================================
-#        1. 登录系统 (居中排版)
+#        1. 登录系统 
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'current_user' not in st.session_state: st.session_state.current_user = ""
@@ -152,10 +158,9 @@ if "u" in query_params and "p" in query_params and not st.session_state.logged_i
 
 if not st.session_state.logged_in:
     spacer1, login_col, spacer3 = st.columns([1, 1.5, 1])
-    
     with login_col:
         st.write("<br><br>", unsafe_allow_html=True)
-        render_logo(width=100, center=True) # 调用居中 Logo
+        render_logo(width=100, center=True)
         st.markdown("<h2 class='login-header'>FactorX 灵犀终端</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>多因子量化投研与动态风控工作站</p>", unsafe_allow_html=True)
         
@@ -211,7 +216,9 @@ if 'current_price' not in st.session_state: st.session_state.current_price = 0.0
 if 'df_history' not in st.session_state: st.session_state.df_history = pd.DataFrame()
 if 'fundamentals' not in st.session_state: st.session_state.fundamentals = {}
 if 'data_source' not in st.session_state: st.session_state.data_source = ""
-if 'news_data' not in st.session_state: st.session_state.news_data = [] # 存储抓取到的新闻
+if 'news_data' not in st.session_state: st.session_state.news_data = [] 
+if 'macro_news' not in st.session_state: st.session_state.macro_news = [] # 新增：宏观电报存储
+if 'report_link' not in st.session_state: st.session_state.report_link = "" # 新增：智能研报链接
 
 if st.sidebar.button("➕ 载入新监测标的", type="primary" if st.session_state.sidebar_select == "" else "secondary", use_container_width=True):
     st.session_state.sidebar_select = ""
@@ -248,16 +255,41 @@ default_cost = float(default_data.get('cost', 0.0))
 default_qty = int(default_data.get('qty', 0))
 
 # ==========================================
-#        3. 核心引擎：数据 + 因子 + 资讯抓取
+#        3. 全息引擎：数据 + 因子 + 宏观情报抓取
 # ==========================================
-@st.cache_data(ttl=1800, show_spinner=False) # 缓存30分钟，保证新闻新鲜度
+@st.cache_data(ttl=600, show_spinner=False) # 缓存缩短到10分钟，保证财联社电报实时性
 def fetch_multi_factor_data(symbol):
     df = pd.DataFrame()
     fund_data = {"PE": None, "PEG": None, "ROE": None, "Margin": None, "52w_Change": None}
     source_name = "未获取"
     news_list = []
+    macro_list = []
+    report_url = ""
     
-    # --- 1. 优先获取海外数据 & Yahoo 新闻 ---
+    is_a_share = symbol.endswith(".SZ") or symbol.endswith(".SS")
+    base_code = symbol.split('.')[0] if is_a_share else symbol
+
+    # 💡 核心升级 1：生成智能研报底层直达链接
+    if is_a_share:
+        report_url = f"https://so.eastmoney.com/Yanbao/s?keyword={base_code}"
+    else:
+        report_url = f"https://seekingalpha.com/symbol/{base_code.upper()}"
+
+    # 💡 核心升级 2：抓取 7x24小时全市场宏观电报 (财联社)
+    try:
+        cls_df = ak.stock_zh_a_alerts_cls()
+        if not cls_df.empty:
+            for idx, row in cls_df.head(6).iterrows():
+                # 过滤掉过短的无用通知
+                if len(str(row.get('内容', ''))) > 15:
+                    macro_list.append({
+                        "time": str(row.get('时间', ''))[-8:],
+                        "content": str(row.get('内容', ''))[:80] + "..."
+                    })
+    except Exception:
+        pass
+
+    # --- 尝试获取海外数据 & Yahoo 英文个股新闻 ---
     try:
         ticker = yf.Ticker(symbol)
         yf_df = ticker.history(period="1y") 
@@ -272,11 +304,10 @@ def fetch_multi_factor_data(symbol):
                 "Margin": info.get('profitMargins', None),
                 "52w_Change": info.get('52WeekChange', None)
             }
-            # 抓取外媒新闻
             yf_news = ticker.news
-            if yf_news:
-                for item in yf_news[:5]:
-                    pub_time = datetime.fromtimestamp(item.get('providerPublishTime', 0)).strftime('%Y-%m-%d %H:%M')
+            if yf_news and not is_a_share: # A股不用外媒新闻
+                for item in yf_news[:6]:
+                    pub_time = datetime.fromtimestamp(item.get('providerPublishTime', 0)).strftime('%m-%d %H:%M')
                     news_list.append({
                         "title": item.get('title', '无标题资讯'),
                         "publisher": item.get('publisher', 'Global Media'),
@@ -286,12 +317,10 @@ def fetch_multi_factor_data(symbol):
     except Exception:
         pass
 
-    # --- 2. 灾备与A股增强：强制拉取东财数据 & 东财研报/资讯 ---
-    is_a_share = symbol.endswith(".SZ") or symbol.endswith(".SS")
+    # --- 灾备与A股增强：强制拉取东财数据 & 东财中文资讯 ---
     if df.empty and is_a_share:
         try:
-            code = symbol.split('.')[0]
-            ak_df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
+            ak_df = ak.stock_zh_a_hist(symbol=base_code, period="daily", adjust="qfq")
             if not ak_df.empty:
                 ak_df.rename(columns={'日期':'Date', '开盘':'Open', '收盘':'Close', '最高':'High', '最低':'Low', '成交量':'Volume'}, inplace=True)
                 ak_df.index = pd.to_datetime(ak_df['Date'])
@@ -300,27 +329,25 @@ def fetch_multi_factor_data(symbol):
         except Exception:
             pass
             
-    # 如果是A股，覆盖抓取东方财富中文新闻
     if is_a_share:
         try:
-            code = symbol.split('.')[0]
-            ak_news = ak.stock_news_em(symbol=code)
+            ak_news = ak.stock_news_em(symbol=base_code)
             if not ak_news.empty:
-                news_list = [] # 覆盖掉 Yahoo 可能抓出的冗余信息
-                for idx, row in ak_news.head(5).iterrows():
+                news_list = [] 
+                for idx, row in ak_news.head(6).iterrows():
                     news_list.append({
                         "title": row.get('新闻标题', 'A股关联资讯'),
                         "publisher": row.get('文章来源', '东方财富'),
                         "link": row.get('新闻链接', '#'),
-                        "time": row.get('发布时间', '')
+                        "time": row.get('发布时间', '')[-14:-3] # 截取精简时间
                     })
         except Exception:
             pass
 
     if df.empty:
-        return None, {}, "主备双引擎数据抓取均失败，请检查代码或网络。", "", []
+        return None, {}, "数据抓取失败，请检查代码。", "", [], [], ""
 
-    # --- 3. 计算技术面指标 ---
+    # --- 计算技术面指标 ---
     try:
         df['MA20'], df['MA60'] = df['Close'].rolling(window=20).mean(), df['Close'].rolling(window=60).mean()
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
@@ -334,9 +361,9 @@ def fetch_multi_factor_data(symbol):
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
 
-        return df.iloc[-126:], fund_data, "成功", source_name, news_list
+        return df.iloc[-126:], fund_data, "成功", source_name, news_list, macro_list, report_url
     except Exception as e:
-        return None, {}, f"指标计算错误: {str(e)}", "", []
+        return None, {}, f"指标计算错误: {str(e)}", "", [], [], ""
 
 def plot_candlestick(df, symbol, name):
     title = f"{name} ({symbol}) - 6个月日K线图" if name else f"{symbol} - 6个月日K线图"
@@ -346,13 +373,8 @@ def plot_candlestick(df, symbol, name):
     fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], name='60日线', line=dict(color='#2196f3', width=1.5)), row=1, col=1)
     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='成交量', marker_color='#90caf9'), row=2, col=1)
     fig.update_layout(
-        title=title, 
-        xaxis_rangeslider_visible=False, 
-        height=480, 
-        margin=dict(l=10, r=10, t=40, b=10), 
-        showlegend=False,
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)"
+        title=title, xaxis_rangeslider_visible=False, height=480, margin=dict(l=10, r=10, t=40, b=10), showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
     )
     return fig
 
@@ -372,15 +394,16 @@ with st.container():
         st.write("") 
         if st.button("🔄 启动灵犀多维扫描", type="primary", use_container_width=True):
             if input_symbol:
-                with st.spinner(f'FactorX 引擎正在深度解析 {input_symbol} 并搜寻全球资讯...'):
-                    # 💡 这里接收了最新加入的 news 资讯数据
-                    df_h, funds, msg, source, news = fetch_multi_factor_data(input_symbol)
+                with st.spinner(f'FactorX 引擎正在深度解析与聚合情报...'):
+                    df_h, funds, msg, source, news, macro, report = fetch_multi_factor_data(input_symbol)
                     if df_h is not None:
                         st.session_state.df_history = df_h
                         st.session_state.current_price = float(df_h.iloc[-1]['Close'])
                         st.session_state.fundamentals = funds
                         st.session_state.data_source = source
                         st.session_state.news_data = news 
+                        st.session_state.macro_news = macro
+                        st.session_state.report_link = report
                     else: st.error(f"❌ {msg}")
 
 if st.button("💾 将标的写入 FactorX 云端矩阵"):
@@ -398,7 +421,7 @@ st.divider()
 
 if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     
-    st.caption(f"**📡 FactorX 实时数据链：** 已成功接驳 `{st.session_state.data_source}`")
+    st.caption(f"**📡 FactorX 数据链：** 已成功接驳 `{st.session_state.data_source}`")
     
     col_chart, col_risk = st.columns([2.2, 1], gap="large")
     with col_chart:
@@ -430,128 +453,119 @@ if not st.session_state.df_history.empty and st.session_state.current_price > 0:
     with f1:
         st.info("🧠 **资金与情绪面**")
         st.write(f"**RSI (14日):** {rsi:.1f}")
-        if rsi > 70: st.error("🔥 情绪狂热 (超买)，警惕资金砸盘。")
-        elif rsi < 30: st.success("🧊 情绪冰点 (超卖)，随时技术反弹。")
-        else: st.write("⚖️ 资金博弈情绪中性。")
+        if rsi > 70: st.error("🔥 情绪狂热 (超买)，警惕砸盘。")
+        elif rsi < 30: st.success("🧊 情绪冰点 (超卖)，随时反弹。")
+        else: st.write("⚖️ 资金博弈中性。")
         vol, vol_ma5 = df.iloc[-1]['Volume'], df.iloc[-1]['Vol_MA5']
         if vol > vol_ma5 * 1.8: st.write("⚡ 监测到剧烈放量异动！")
-        elif vol < vol_ma5 * 0.6: st.write("💤 资金交投进入极致缩量。")
         else: st.write("🌊 资金池水位平稳。")
 
     with f2:
         st.success("💼 **深度基本面**")
-        margin = fund.get('Margin')
         st.write(f"**ROE:** {f'{roe*100:.1f}%' if roe else '未知'}")
         if roe and roe > 0.15: st.caption("🏆 卓越的印钞能力 (ROE>15%)")
         pe_str = f"{pe:.1f}" if pe else '未知'
         st.write(f"**动态市盈率 (PE):** {pe_str}")
         if pe and pe < 15: st.caption("💎 估值处于安全水域")
-        elif pe and pe > 40: st.caption("⚠️ 估值溢价较高，防范戴维斯双杀")
+        elif pe and pe > 40: st.caption("⚠️ 估值溢价较高")
 
     with f3:
         st.warning("🏛️ **趋势与宏观对比**")
         if current_p > ma60 and ma20 > ma60: st.write("📈 **中期趋势：** 多头右侧通道。")
         elif current_p < ma60: st.write("📉 **中期趋势：** 空头破位深水区。")
-        else: st.write("⚖️ **中期趋势：** 震荡方向未明。")
+        else: st.write("⚖️ **中期趋势：** 震荡不明。")
         w52 = fund.get('52w_Change')
         st.write(f"**近一年涨跌幅:** {f'{w52*100:.1f}%' if w52 else '未知'}")
-        if w52 and w52 > 0.2: st.caption("🚀 过去一年显著跑赢宏观大盘。")
-        elif w52 and w52 < -0.1: st.caption("⚓ 过去一年走势相对疲软。")
+        if w52 and w52 > 0.2: st.caption("🚀 过去一年跑赢大盘。")
 
     st.markdown("---")
     
     # ==========================================
-    # 💡 核心展示：左侧机器打分，右侧新闻舆情
+    # 💡 核心升级：诊断 + 多维情报聚合局
     # ==========================================
-    col_diag, col_news = st.columns([1.5, 1], gap="large")
+    col_diag, col_news = st.columns([1.5, 1.2], gap="large")
     
     with col_diag:
-        st.markdown("### 📝 FactorX 综合诊断与指令")
+        st.markdown("### 📝 FactorX 综合诊断指令")
         score = 0
         reasons = []
 
         if current_p > ma60 and ma20 > ma60:
             score += 1
-            reasons.append("✔ **趋势因子得分：** 价格稳居60日生命线及20日均线上方，处于确定的多头通道。")
+            reasons.append("✔ **趋势因子：** 价格稳居生命线，多头通道。")
         elif current_p < ma60:
             score -= 1
-            reasons.append("❌ **趋势因子失分：** 价格已跌破60日生命线，中线资金呈流出态势，技术面承压。")
-        else:
-            reasons.append("➖ **趋势因子纠结：** 均线系统方向未明，处于多空震荡整理期。")
+            reasons.append("❌ **趋势因子：** 跌破生命线，中线资金流出。")
 
         if pe is not None:
             if pe < 20 and (roe is not None and roe > 0.10):
                 score += 1
-                reasons.append("✔ **价值因子得分：** 估值较低且盈利强劲，具备优秀长线底座。")
+                reasons.append("✔ **价值因子：** 估值较低且盈利强劲。")
             elif pe > 40:
                 score -= 1
-                reasons.append("❌ **价值因子失分：** 动态市盈率偏高，存在杀估值泡沫破裂风险。")
+                reasons.append("❌ **价值因子：** 动态市盈率偏高，存在杀估值风险。")
 
         if rsi > 70:
             score -= 1
-            reasons.append("❌ **情绪因子失分：** RSI进入超买区，散户FOMO情绪严重，极易诱发均线回归回调。")
+            reasons.append("❌ **情绪因子：** RSI超买，散户FOMO严重。")
         elif rsi < 30:
             score += 1
-            reasons.append("✔ **情绪因子得分：** RSI处于极度冰点，做空动能衰竭，具备反弹条件。")
+            reasons.append("✔ **情绪因子：** RSI极度冰点，做空动能衰竭。")
         
         if score >= 2:
             st.success("🟢 **核心指令：强烈看多 (Strong Buy)**")
-            st.write("多维因子产生共振向好，建议积极配置或坚定持有底仓，享受趋势红利。")
+            st.write("多维因子共振向好，建议积极配置或持有。")
         elif score == 1:
             st.info("🟡 **核心指令：谨慎乐观 (Cautious Optimism)**")
-            st.write("整体偏向多头，基本面或趋势有亮点，可利用加仓推演模块逢低适度建仓，严守防守线。")
-        elif score == 0:
-            st.warning("⚪ **核心指令：中性观望 (Neutral)**")
-            st.write("多空因子交织对冲，缺乏明确单边驱动力，建议多看少动，等待方向明朗。")
-        else:
+            st.write("整体偏向多头，可适度建仓，严守防守线。")
+        elif score <= -1:
             st.error("🔴 **核心指令：防范风险 (Risk Warning / Sell)**")
-            st.write("技术面破位或估值透支，建议迅速减仓规避，切忌盲目接飞刀。")
+            st.write("技术破位或估值透支，建议规避，切忌接飞刀。")
+        else:
+            st.warning("⚪ **核心指令：中性观望 (Neutral)**")
+            st.write("多空交织，缺乏明确驱动力，多看少动。")
 
-        with st.expander("🔍 查看评分逻辑推演", expanded=False):
+        with st.expander("🔍 展开量化评分逻辑", expanded=False):
             for reason in reasons:
                 st.markdown(reason)
 
+    # 💡 终极情报局：选项卡分类展示
     with col_news:
         st.markdown("### 📰 灵犀情报局")
-        st.caption("关联异动研报与机构动向")
+        tab_stock, tab_macro, tab_report = st.tabs(["🎯 个股异动", "🌍 宏观电报", "📑 深度研报"])
         
-        if st.session_state.news_data:
-            for item in st.session_state.news_data:
-                # 渲染带链接的新闻标题与来源
-                st.markdown(f"""
-                <div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px dashed rgba(130,130,130,0.3);">
-                    <a href="{item['link']}" target="_blank" class="news-link" style="font-size: 14px; line-height: 1.4;">
-                        {item['title']}
-                    </a>
-                    <div style="font-size: 11px; color: gray; margin-top: 4px;">
-                        ⏱️ {item['time']} &nbsp;|&nbsp; 🗞️ {item['publisher']}
+        with tab_stock:
+            if st.session_state.news_data:
+                for item in st.session_state.news_data:
+                    st.markdown(f"""
+                    <div style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed rgba(130,130,130,0.3);">
+                        <a href="{item['link']}" target="_blank" class="news-link" style="font-size: 13px;">{item['title']}</a>
+                        <div style="font-size: 11px; color: gray; margin-top: 2px;">⏱️ {item['time']} | 🗞️ {item['publisher']}</div>
                     </div>
-                </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("暂未嗅探到关联资讯。")
+
+        with tab_macro:
+            if st.session_state.macro_news:
+                st.caption("⚡ 财联社 7x24小时全市场快讯")
+                for item in st.session_state.macro_news:
+                    st.markdown(f"""
+                    <div style="margin-bottom: 8px; font-size: 13px;">
+                        <span style="color: #E53935; font-weight: bold;">{item['time']}</span> - {item['content']}
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("宏观电报接口暂未响应。")
+
+        with tab_report:
+            st.markdown("<p style='font-size: 13px; color: gray;'>由于商业版权限制，API无法直接抓取PDF研报实体。但 FactorX 已为您生成智能底层穿透链接，点击即可查阅各家券商/机构对该资产的最新深度研报。</p>", unsafe_allow_html=True)
+            if st.session_state.report_link:
+                st.markdown(f"""
+                <a href="{st.session_state.report_link}" target="_blank" class="report-btn">
+                    🔗 前往查阅 [{input_symbol}] 深度机构研报库
+                </a>
                 """, unsafe_allow_html=True)
-        else:
-            st.info("🕸️ 暂未嗅探到该资产近期的核心关联资讯或研报。")
-
-    st.markdown("---")
-    with st.expander("📖 FactorX 投研模型说明与数据字典", expanded=False):
-        st.markdown("""
-        #### 1. 资金与情绪面 (Momentum & Sentiment)
-        * **数据来源：** K线衍生计算 (Yahoo Finance / AKShare 双引擎)
-        * **逻辑依据：** * **RSI (相对强弱指数)：** `RSI > 70` 视为超买区，扣分（-1）；`RSI < 30` 视为超卖区，加分（+1）。
-            * **量能异动：** 对比当日与过去5日平均成交量。超出 1.8 倍视为资金强介入预警。
-        
-        #### 2. 深度基本面 (Fundamentals)
-        * **数据来源：** 财报底层接口
-        * **逻辑依据：** 若 `PE < 20` 且 `ROE > 10%`，符合价值投资审美，加分（+1）。若 `PE > 40`，视为泡沫风险，扣分（-1）。
-
-        #### 3. 趋势与宏观对比 (Macro Trend)
-        * **数据来源：** 均线及52周价格对比。
-        * **逻辑依据：** 若现价站稳双线（`现价 > MA60` 且 `MA20 > MA60`），视为右侧多头，加分（+1）；跌破 MA60 则扣分（-1）。
-        
-        #### 4. 灵犀情报局 (News & Catalyst)
-        * **数据来源：** Yahoo Finance News API (海外资产) / 东方财富数据中心 (国内A股资产)。由于信息抓取存在延迟，资讯仅供辅助参考。
-            
-        > **⚠️ 免责声明：** 结论仅作为交易时的“交叉验证”风控工具，**绝不构成任何实质性的买卖指导**。实盘交易盈亏自负。
-        """)
 
 else:
     st.info("💡 请在上方确认代码后，点击“启动灵犀多维扫描”。")
